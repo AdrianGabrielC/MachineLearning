@@ -1,0 +1,59 @@
+import pandas as pd # used for data import
+from sklearn.model_selection import train_test_split # split data into train and test
+from sklearn.preprocessing import StandardScaler # avoid bias with large numbers (eg pregnancies 6 vs insulin 276 which skews the results)
+from sklearn.neighbors import KNeighborsClassifier # the algorithm used
+from sklearn.metrics import accuracy_score # compute accuracy test our model
+import math
+from tabulate import tabulate
+
+# Problem trying to solve: predict whether a person has diabetes or not based on:
+# - Pregnancies
+# - Glucose
+# - BloodPressure
+# - SkinThickness
+# - Insulin
+# - Age
+
+# All columns excepting pregnancies cannot be 0 because we cant have a person with 0 age or 0 skin thickness
+# We will replace it with the average
+def replace_zeros(data):
+    no_zeros_columns = ['Glucose', 'BloodPressure', 'SkinThickness', 'Insulin', 'BMI', 'Age']
+    for column in no_zeros_columns:
+        mean = int(data[column].mean(skipna=True))
+        data[column] = data[column].replace(0, mean)
+
+# Here we scale the data so instead of having for example values between 1 and 350, we have between -1 an 1.
+def scale_data(train_data, test_data):
+    scaler = StandardScaler()
+    train_data = scaler.fit_transform(train_data)
+    test_data = scaler.transform(test_data)
+    return (train_data, test_data)
+
+# Here we split the data we have into training and testing setes.
+def split_data(data):
+    x = data.iloc[:, 0:8] # we get all rows but only columns 0 to 7 (8 columns). The 9th column is the outcome in the dataset which is not part of the data but part of the answer
+    y = data.iloc[:, 8] # here we get only the last columns which is the outcome
+    return train_test_split(x, y, random_state=0, test_size=0.2) # test_size defines 20% of the data for testing
+
+# Find K as the sqrt of the number of entries in the training set. Also use an odd number
+def find_K(number_of_entries):
+    k = int(math.sqrt(number_of_entries))
+    return k - 1 if k % 2 == 0 else k
+
+# Load dataset
+dataset = pd.read_csv(r'C:\Users\Adrian\OneDrive\Documents\MachineLearning\DataSets\Diabetes\diabetes.csv')
+# Preprocess data and split data
+replace_zeros(dataset)
+x_train, x_test, y_train, y_test = split_data(dataset)
+x_train, x_test = scale_data(x_train, x_test)
+# Find K
+k = find_K(len(x_train))
+# Create and fit the model
+classifier = KNeighborsClassifier(n_neighbors=k, p=2, metric='euclidean')
+classifier.fit(x_train,y_train)
+# Predict on test data
+y_pred = classifier.predict(x_test)
+# Evaluate the model
+print(accuracy_score(y_test, y_pred))
+
+print(tabulate(dataset.head(), headers='keys'))
