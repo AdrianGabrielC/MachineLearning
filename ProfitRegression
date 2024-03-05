@@ -1,0 +1,22 @@
+import pandas as pd
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score
+
+# Problem: We have a dataset related to companies with the following columns:
+# R&D Spend     Administration      Marketing Spend   Profit
+# We want to predict a company's profit based on R&D spend, administration and marketing spend.
+
+companies = pd.read_csv(r'C:\Users\Adrian\OneDrive\Documents\MachineLearning\DataSets\Companies\1000_companies.csv')
+# Get X and Y
+x = companies.iloc[:, :-2].values # We extract all columns except the last which is used for the answer
+y = companies.iloc[:, 4].values # This is the last column used for answer
+# Split data
+x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=0) # 20% for test
+# Create the model
+model = LinearRegression()
+model.fit(x_train, y_train)
+# Predict
+y_pred = model.predict(x_test)
+# Evaluate
+print(r2_score(y_test, y_pred)) # R squared value > 0.9 proves the model is good
