@@ -1,0 +1,425 @@
+import numpy as np
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+import tensorflow_addons as tfa
+from tensorflow.keras import backend, optimizers
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import GaussianNoise, Dense, Dropout, BatchNormalization, GlobalAveragePooling2D, Flatten, Activation
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard, LearningRateScheduler
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from vit_keras import vit
+from tensorflow.keras.preprocessing.image import load_img
+from tensorflow.keras.preprocessing.image import img_to_array
+from tensorflow.keras.preprocessing.image import array_to_img
+from tensorflow.keras.applications.imagenet_utils import decode_predictions
+from tensorflow.keras.preprocessing.image import save_img
+
+# TRAIN WITH VIT FETUS
+kfold = [[r'G:\Computer Science\Projects\Fetus Project\Augmented\Multi\Dataset\kFold\TrainAndValid\k1\Train',
+          r'G:\Computer Science\Projects\Fetus Project\Augmented\Multi\Dataset\kFold\TrainAndValid\k1\Valid'],
+         [r'G:\Computer Science\Projects\Fetus Project\Augmented\Multi\Dataset\kFold\TrainAndValid\k2\Train',
+          r'G:\Computer Science\Projects\Fetus Project\Augmented\Multi\Dataset\kFold\TrainAndValid\k2\Valid'],
+         [r'G:\Computer Science\Projects\Fetus Project\Augmented\Multi\Dataset\kFold\TrainAndValid\k3\Train',
+          r'G:\Computer Science\Projects\Fetus Project\Augmented\Multi\Dataset\kFold\TrainAndValid\k3\Valid'],
+         [r'G:\Computer Science\Projects\Fetus Project\Augmented\Multi\Dataset\kFold\TrainAndValid\k4\Train',
+          r'G:\Computer Science\Projects\Fetus Project\Augmented\Multi\Dataset\kFold\TrainAndValid\k4\Valid'],
+         [r'G:\Computer Science\Projects\Fetus Project\Augmented\Multi\Dataset\kFold\TrainAndValid\k5\Train',
+          r'G:\Computer Science\Projects\Fetus Project\Augmented\Multi\Dataset\kFold\TrainAndValid\k5\Valid'],
+         ]
+kfoldBinary = [[r'G:\Computer Science\Projects\Fetus Project\Augmented\Binary\k1\Train',
+                r'G:\Computer Science\Projects\Fetus Project\Augmented\Binary\k1\Valid'],
+               [r'G:\Computer Science\Projects\Fetus Project\Augmented\Binary\k2\Train',
+                r'G:\Computer Science\Projects\Fetus Project\Augmented\Binary\k2\Valid'],
+               [r'G:\Computer Science\Projects\Fetus Project\Augmented\Binary\k3\Train',
+                r'G:\Computer Science\Projects\Fetus Project\Augmented\Binary\k3\Valid'],
+               [r'G:\Computer Science\Projects\Fetus Project\Augmented\Binary\k4\Train',
+                r'G:\Computer Science\Projects\Fetus Project\Augmented\Binary\k4\Valid'],
+               [r'G:\Computer Science\Projects\Fetus Project\Augmented\Binary\k5\Train',
+                r'G:\Computer Science\Projects\Fetus Project\Augmented\Binary\k5\Valid'],
+               ]
+# Create the learning scheduler
+def scheduler(epoch: int, lr: float) -> float:
+    if epoch != 0 and epoch % 7 == 0:
+        return lr*0.1
+    else:
+        return lr
+lr_scheduler_callback = LearningRateScheduler(scheduler)
+#Load the pre-trained ViT model.
+vit_model = vit.vit_l32(image_size=224,
+                        pretrained=True,
+                        include_top=False,
+                        pretrained_top=False)
+finetune_at = 28 # 28
+for layer in vit_model.layers[:finetune_at-1]: layer.trainable=False
+# Add GaussianNoise layer for robustness
+noise = GaussianNoise(0.01, input_shape=(224,224,3))
+# Create the model
+model = Sequential()
+model.add(noise)
+model.add(vit_model)
+model.add(Dense(2, activation='softmax'))
+#checkpointer = ModelCheckpoint(filepath='fetus.best_5Classes.hdf5', verbose=1,save_best_only=True)
+# K FOLD
+for i in range(5):
+    train_gen = ImageDataGenerator(rescale=1/255,
+                                   horizontal_flip=True,
+                                   rotation_range=40,
+                                   shear_range=0.2,
+                                   zoom_range=0.2,
+                                   fill_mode='nearest').flow_from_directory(kfoldBinary[i][0],
+                                                                            target_size=(224,224),
+                                                                            batch_size=32)
+    valid_gen = ImageDataGenerator(rescale=1/255).flow_from_directory(kfoldBinary[i][1],
+                                                                      target_size=(224,224),
+                                                                      batch_size=32)
+    if i == 0: model.compile(optimizer=optimizers.Adam(),
+                  loss="categorical_crossentropy",
+                  metrics=['accuracy'])
+    history = model.fit(train_gen,
+                        epochs=2,
+                        validation_data=valid_gen,
+                        verbose=1,
+                        shuffle=True,
+                        callbacks=[EarlyStopping(monitor='val_accuracy',
+                                                  patience=10,
+                                                  restore_best_weights=True),
+                                   lr_scheduler_callback])
+    test_gen = ImageDataGenerator(rescale=1 / 255).flow_from_directory(
+        r'G:\Computer Science\Projects\Fetus Project\Augmented\Multi\Dataset\test2',
+        batch_size=32,
+        target_size=(224, 224))
+    test_loss, test_acc = model.evaluate(test_gen)
+    print("Test acc:", test_acc)
+
+# PREDICT WITH VIT FETUS.
+def predictMulti():
+    predict_generator = ImageDataGenerator(rescale=1 / 255).flow_from_directory(
+        r'G:\Computer Science\Projects\Fetus Project\Augmented\Multi\Dataset\test2',
+        target_size=(224, 224),
+        batch_size=32)
+
+    contor_gresite = 0
+
+    contor_aorta = 0
+    contor_flux = 0
+    contor_v = 0
+    contor_x = 0
+
+    contor_aorta_gresit = 0
+    contor_flux_gresit = 0
+    contor_v_gresit = 0
+    contor_x_gresit = 0
+    for step in range(23):
+        x, y = predict_generator.next()  # x is the batch of images (32); eg x[0] is the first image, x[1] the second image etc; y is their corresponding labels
+        prediction = model.predict(x)  # here we will have the prediction for 32 images
+        for i in range(32):
+            if np.argmax(y[i]) != np.argmax(prediction[i]):
+                contor_gresite += 1
+                if np.argmax(y[i]) == 0:
+                    contor_aorta_gresit += 1
+                    if np.argmax(prediction[i]) == 1: save_img( r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\Multi\wrong\aorta_clasificata_ca_flux{i}.jpg'.format(i=contor_aorta_gresit), x[i])
+                    if np.argmax(prediction[i]) == 2: save_img( r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\Multi\wrong\aorta_clasificata_ca_V{i}.jpg'.format(i=contor_aorta_gresit), x[i])
+                    if np.argmax(prediction[i]) == 3: save_img( r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\Multi\wrong\aorta_clasificata_ca_X{i}.jpg'.format(i=contor_aorta_gresit), x[i])
+                if np.argmax(y[i]) == 1:
+                    contor_flux_gresit += 1
+                    if np.argmax(prediction[i]) == 0: save_img( r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\Multi\wrong\flux_clasificata_ca_aorta{i}.jpg'.format(i=contor_flux_gresit), x[i])
+                    if np.argmax(prediction[i]) == 2: save_img( r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\Multi\wrong\flux_clasificata_ca_V{i}.jpg'.format(i=contor_flux_gresit), x[i])
+                    if np.argmax(prediction[i]) == 3: save_img( r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\Multi\wrong\flux_clasificata_ca_X{i}.jpg'.format(i=contor_flux_gresit), x[i])
+                if np.argmax(y[i]) == 2:
+                    contor_v_gresit += 1
+                    if np.argmax(prediction[i]) == 0: save_img( r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\Multi\wrong\V_clasificata_ca_aorta{i}.jpg'.format(i=contor_v_gresit), x[i])
+                    if np.argmax(prediction[i]) == 1: save_img( r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\Multi\wrong\V_clasificata_ca_flux{i}.jpg'.format(i=contor_v_gresit), x[i])
+                    if np.argmax(prediction[i]) == 3: save_img( r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\Multi\wrong\V_clasificata_ca_X{i}.jpg'.format(i=contor_v_gresit), x[i])
+                if np.argmax(y[i]) == 3:
+                    contor_x_gresit += 1
+                    if np.argmax(prediction[i]) == 0: save_img( r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\Multi\wrong\X_clasificata_ca_aorta{i}.jpg'.format(i=contor_x_gresit), x[i])
+                    if np.argmax(prediction[i]) == 1: save_img( r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\Multi\wrong\X_clasificata_ca_flux{i}.jpg'.format(i=contor_x_gresit), x[i])
+                    if np.argmax(prediction[i]) == 2: save_img( r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\Multi\wrong\X_clasificata_ca_V{i}.jpg'.format(i=contor_x_gresit), x[i])
+            else:
+                if np.argmax(prediction[i]) == 0:
+                    save_img(r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\aorta\aorta{i}.jpg'.format(
+                        i=contor_aorta), x[i])
+                    contor_aorta += 1
+                if np.argmax(prediction[i]) == 1:
+                    save_img(r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\flux\flux{i}.jpg'.format(
+                        i=contor_flux), x[i])
+                    contor_flux += 1
+                if np.argmax(prediction[i]) == 2:
+                    save_img(r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\v\v{i}.jpg'.format(i=contor_v),
+                             x[i])
+                    contor_v += 1
+                if np.argmax(prediction[i]) == 3:
+                    save_img(r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\x\x{i}.jpg'.format(i=contor_x),
+                             x[i])
+                    contor_x += 1
+    print("Gresite total:", contor_gresite)
+    print("Gresite aorta:", contor_aorta_gresit)
+    print("Gresite flux:", contor_flux_gresit)
+    print("Gresite v:", contor_v_gresit)
+    print("Gresite x:", contor_x_gresit)
+def predict_Binary():
+    predict_generator = ImageDataGenerator(rescale=1 / 255).flow_from_directory(
+        r'G:\Computer Science\Projects\Fetus Project\Augmented\Binary\test',
+        target_size=(224, 224),
+        batch_size=32)
+
+    contor_gresite = 0
+    contor_afvx = 0
+    contor_other = 0
+    for i in range(46):
+        x, y = predict_generator.next()  # x is the batch of images (32); eg x[0] is the first image, x[1] the second image etc; y is their corresponding labels
+        prediction = model.predict(x)  # here we will have the prediction for 32 images
+        for i in range(32):
+            if np.argmax(y[i]) != np.argmax(prediction[i]):
+                if np.argmax(prediction[i]) == 0: save_img(r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\Binary\wrong\other_clasificata_ca_afvx{i}.jpg'.format(i=contor_gresite), x[i])
+                else: save_img(r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\Binary\wrong\afvx_clasificata_ca_other{i}.jpg'.format(i=contor_gresite), x[i])
+                contor_gresite += 1
+            else:
+                if np.argmax(prediction[i]) == 0:
+                    save_img(r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\Binary\afvx\afvx{i}.jpg'.format(i=contor_afvx), x[i])
+                    contor_afvx += 1
+                else:
+                    save_img(r'G:\Computer Science\Projects\Fetus Project\Augmented\TEST\Binary\other\other{i}.jpg'.format(i=contor_other), x[i])
+                    contor_other += 1
+
+def build_Multi_model():
+    vit_model = vit.vit_l32(image_size=224,
+                            pretrained=True,
+                            include_top=False,
+                            pretrained_top=False)
+    finetune_at = 28 # 28
+    for layer in vit_model.layers[:finetune_at-1]: layer.trainable=False
+    # Add GaussianNoise layer for robustness
+    noise = GaussianNoise(0.01, input_shape=(224,224,3))
+    # Create the model
+    model = Sequential()
+    model.add(noise)
+    model.add(vit_model)
+    model.add(Dense(4, activation='softmax'))
+    model.load_weights('fetus.best_MultiV2.hdf5')
+    model.compile(optimizer=optimizers.Adam(),
+                  loss='categorical_crossentropy',
+                  metrics=['accuracy'])
+    return model
+def build_Binary_model():
+    vit_model = vit.vit_l32(image_size=224,
+                            pretrained=True,
+                            include_top=False,
+                            pretrained_top=False)
+    finetune_at = 28 # 28
+    for layer in vit_model.layers[:finetune_at-1]: layer.trainable=False
+    # Add GaussianNoise layer for robustness
+    noise = GaussianNoise(0.01, input_shape=(224,224,3))
+    # Create the model
+    model = Sequential()
+    model.add(noise)
+    model.add(vit_model)
+    model.add(Dense(2, activation='sigmoid'))
+    model.load_weights('fetus.best_BINARY.hdf5')
+    model.compile(optimizer=optimizers.Adam(),
+                  loss='binary_crossentropy',
+                  metrics=['accuracy'])
+    return model
+model = build_Binary_model()
+predict_Binary()
+
+
+
+
+# 1 Cycle scheduling
+class OneCycleLR(Callback):
+    def __init__(self,
+                 num_samples,
+                 batch_size,
+                 max_lr,
+                 end_percentage=0.1,
+                 scale_percentage=None,
+                 maximum_momentum=0.95,
+                 minimum_momentum=0.85,
+                 verbose=True):
+
+        super(OneCycleLR, self).__init__()
+
+        if end_percentage < 0. or end_percentage > 1.:
+            raise ValueError("`end_percentage` must be between 0 and 1")
+
+        if scale_percentage is not None and (scale_percentage < 0. or scale_percentage > 1.):
+            raise ValueError("`scale_percentage` must be between 0 and 1")
+
+        self.initial_lr = max_lr
+        self.end_percentage = end_percentage
+        self.scale = float(scale_percentage) if scale_percentage is not None else float(end_percentage)
+        self.max_momentum = maximum_momentum
+        self.min_momentum = minimum_momentum
+        self.verbose = verbose
+
+        if self.max_momentum is not None and self.min_momentum is not None:
+            self._update_momentum = True
+        else:
+            self._update_momentum = False
+
+        self.clr_iterations = 0.
+        self.history = {}
+
+        self.epochs = None
+        self.batch_size = batch_size
+        self.samples = num_samples
+        self.steps = None
+        self.num_iterations = None
+        self.mid_cycle_id = None
+
+    def _reset(self):
+        """
+        Reset the callback.
+        """
+        self.clr_iterations = 0.
+        self.history = {}
+
+    def compute_lr(self):
+        if self.clr_iterations > 2 * self.mid_cycle_id:
+            current_percentage = (self.clr_iterations - 2 * self.mid_cycle_id)
+            current_percentage /= float((self.num_iterations - 2 * self.mid_cycle_id))
+            new_lr = self.initial_lr * (1. + (current_percentage *
+                                              (1. - 100.) / 100.)) * self.scale
+
+        elif self.clr_iterations > self.mid_cycle_id:
+            current_percentage = 1. - (
+                self.clr_iterations - self.mid_cycle_id) / self.mid_cycle_id
+            new_lr = self.initial_lr * (1. + current_percentage *
+                                        (self.scale * 100 - 1.)) * self.scale
+
+        else:
+            current_percentage = self.clr_iterations / self.mid_cycle_id
+            new_lr = self.initial_lr * (1. + current_percentage *
+                                        (self.scale * 100 - 1.)) * self.scale
+
+        if self.clr_iterations == self.num_iterations:
+            self.clr_iterations = 0
+
+        return new_lr
+
+    def compute_momentum(self):
+        if self.clr_iterations > 2 * self.mid_cycle_id:
+            new_momentum = self.max_momentum
+
+        elif self.clr_iterations > self.mid_cycle_id:
+            current_percentage = 1. - ((self.clr_iterations - self.mid_cycle_id) / float(
+                                        self.mid_cycle_id))
+            new_momentum = self.max_momentum - current_percentage * (
+                self.max_momentum - self.min_momentum)
+
+        else:
+            current_percentage = self.clr_iterations / float(self.mid_cycle_id)
+            new_momentum = self.max_momentum - current_percentage * (
+                self.max_momentum - self.min_momentum)
+
+        return new_momentum
+
+    def on_train_begin(self, logs={}):
+        logs = logs or {}
+
+        self.epochs = self.params['epochs']
+        # When fit generator is used
+        # self.params don't have the elements 'batch_size' and 'samples'
+        # self.batch_size = self.params['batch_size']
+        # self.samples = self.params['samples']
+        self.steps = self.params['steps']
+
+        if self.steps is not None:
+            self.num_iterations = self.epochs * self.steps
+        else:
+            if (self.samples % self.batch_size) == 0:
+                remainder = 0
+            else:
+                remainder = 1
+            self.num_iterations = (self.epochs + remainder) * self.samples // self.batch_size
+
+        self.mid_cycle_id = int(self.num_iterations * ((1. - self.end_percentage)) / float(2))
+
+        self._reset()
+        K.set_value(self.model.optimizer.lr, self.compute_lr())
+
+        if self._update_momentum:
+            if not hasattr(self.model.optimizer, 'momentum'):
+                raise ValueError("Momentum can be updated only on SGD optimizer !")
+
+            new_momentum = self.compute_momentum()
+            K.set_value(self.model.optimizer.momentum, new_momentum)
+
+    def on_batch_end(self, epoch, logs=None):
+        logs = logs or {}
+
+        self.clr_iterations += 1
+        new_lr = self.compute_lr()
+
+        self.history.setdefault('lr', []).append(
+            K.get_value(self.model.optimizer.lr))
+        K.set_value(self.model.optimizer.lr, new_lr)
+
+        if self._update_momentum:
+            if not hasattr(self.model.optimizer, 'momentum'):
+                raise ValueError("Momentum can be updated only on SGD optimizer !")
+
+            new_momentum = self.compute_momentum()
+
+            self.history.setdefault('momentum', []).append(
+                K.get_value(self.model.optimizer.momentum))
+            K.set_value(self.model.optimizer.momentum, new_momentum)
+
+        for k, v in logs.items():
+            self.history.setdefault(k, []).append(v)
+
+    def on_epoch_end(self, epoch, logs=None):
+        if self.verbose:
+            if self._update_momentum:
+                print(" - lr: %0.5f - momentum: %0.2f " %
+                      (self.history['lr'][-1], self.history['momentum'][-1]))
+
+            else:
+                print(" - lr: %0.5f " % (self.history['lr'][-1]))
+# Create the learning scheduler
+def scheduler(epoch: int, lr: float) -> float:
+    if epoch != 0 and epoch % 7 == 0:
+        return lr*0.1
+    else:
+        return lr
+lr_scheduler_callback = LearningRateScheduler(scheduler)
+
+
+#Load the pre-trained ViT model.
+vit_model = vit.vit_l32(image_size=224,
+                        pretrained=True,
+                        include_top=False,
+                        pretrained_top=False)
+finetune_at = 28 # 28
+for layer in vit_model.layers[:finetune_at-1]: layer.trainable=False
+# Add GaussianNoise layer for robustness
+noise = GaussianNoise(0.01, input_shape=(224,224,3))
+# Create the model
+model = Sequential()
+model.add(noise)
+model.add(vit_model)
+model.add(Dense(29, activation='softmax'))
+model.load_weights('AS.best_without_1cycle.hdf5')
+# checkpointer = ModelCheckpoint(filepath='AS.best_without_1cycle.hdf5', verbose=1,save_best_only=True)
+train_gen = ImageDataGenerator(rescale=1/255,
+                               validation_split=0.2)
+
+x,y = valid_batch.next()
+print(y.shape)
+# lr = OneCycleLR(num_samples=69600,
+#                 batch_size=32,
+#                 max_lr=0.02) # max lr found is 0.02. Beyond this value the accuracy starts going down
+# model.compile(optimizer=optimizers.Adam(),
+#               loss="categorical_crossentropy",
+#               metrics=['accuracy'])
+# history = model.fit(train_batch,
+#                     epochs=5,
+#                     verbose=1,
+#                     shuffle=True,
+#                     validation_data=valid_batch,
+#                     callbacks=[EarlyStopping(monitor='val_accuracy',
+#                                               patience=10,
+#                                               restore_best_weights=True),
+#                                checkpointer])
