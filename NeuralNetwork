@@ -1,0 +1,71 @@
+import numpy as np
+import scipy.special
+
+class NeuralNetwork:
+    # We first need to set the number of input, hidden and output layer nodes which defines the shape and size of the nn
+    def __init__(self, inodes, hnodes, onodes, learningRate):
+        self.inputNodes = inodes
+        self.hiddenNodes = hnodes
+        self.outputNodes = onodes
+        self.learningRate = learningRate
+        self.input_hidden_weights = np.random.rand(hnodes, inodes) - 0.5 # random.rand generates number between 0 and 1. We subtract in order to have values between -0.5 and 0.5 so we also have negative weights
+        self.hidden_output_weights = np.random.rand(onodes, hnodes) - 0.5
+
+    def train(self, input_list, target_list):
+        # Convert input list to 2d array
+        input_matrix = np.array(input_list, ndmin=2).T
+        target_matrix = np.array(target_list, ndmin=2).T
+
+        # Compute the signals into hidden layer
+        hidden_inputs = np.dot(self.input_hidden_weights, input_matrix)
+
+        # Compute the signals emerging from hidden layer
+        hidden_outputs = self.activation_function(hidden_inputs)
+
+        # Compute the signals into final output layer
+        final_inputs = np.dot(self.hidden_output_weights, hidden_outputs)
+
+        # Compute the signals emerging from final output layer
+        final_outputs = self.activation_function(final_inputs)
+
+        # Compute the error which is target - actual
+        output_errors = target_matrix - final_outputs
+
+        # Compute the back-propagated errors for the hidden layer nodes
+        hidden_errors = np.dot(self.hidden_output_weights.T, output_errors)
+
+        # Update the weights for the links between the hidden and output layers
+        self.hidden_output_weights += self.learningRate  * np.dot((output_errors * final_outputs * (1.0 - final_outputs)), np.transpose(hidden_outputs))
+
+        # Update the weights for the links between the input and hidden layers
+        self.input_hidden_weights += self.learningRate * np.dot((hidden_errors * hidden_outputs * (1.0 - hidden_outputs)), np.transpose(input_matrix))
+
+    # This method takes the input of a neural net and returns the network's output.
+    def predict(self, input_list):
+        # Convert input list to 2d array
+        input_matrix = np.array(input_list, ndmin=2).T
+
+        # Compute signals into hidden layers
+        hidden_inputs = np.dot(self.input_hidden_weights, input_matrix)
+
+        # Compute the signals emerging from hidden layer
+        hidden_outputs = self.activation_function(hidden_inputs)
+
+        # Compute signals into final output layer
+        final_inputs = np.dot(self.hidden_output_weights, hidden_outputs)
+
+        # Compute the signals emerging from final output layer
+        final_outputs = self.activation_function(final_inputs)
+
+        return final_outputs
+
+    def activation_function(self, x):
+        return scipy.special.expit(x) # Sigmoid function
+
+
+# Create the model
+input_nodes = 800
+hidden_nodes = 100
+output_nodes = 10
+learning_rate = 0.3
+model = NeuralNetwork(input_nodes, hidden_nodes, output_nodes, learning_rate)
